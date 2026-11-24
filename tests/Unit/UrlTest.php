@@ -42,6 +42,28 @@ class UrlTest extends TestCase
         self::assertSame('#', Url::parse('http://localhost#')->hash());
     }
 
+    public function testEmptyQueryAndFragmentDelimiters()
+    {
+        $cases = [
+            ['http://localhost/prefix', '', ''],
+            ['http://localhost/prefix?', '?', ''],
+            ['http://localhost/prefix#', '', '#'],
+            ['http://localhost/prefix?#', '?', '#'],
+            ['http://localhost/prefix?query=value#', '?query=value', '#'],
+            ['http://localhost/prefix#fragment?not=query', '', '#fragment?not=query'],
+            ['http://localhost/prefix??#fragment#tail', '??', '#fragment#tail'],
+            ['http://localhost/prefix%3F%23', '', ''],
+        ];
+        foreach ($cases as $case) {
+            list($endpoint, $search, $hash) = $case;
+            $url = Url::parse($endpoint);
+            self::assertSame($search, $url->search(), $endpoint);
+            self::assertSame($hash, $url->hash(), $endpoint);
+            self::assertSame($url->pathname() . $search, $url->path(), $endpoint);
+            self::assertSame($endpoint, $url->href());
+        }
+    }
+
     public function testParseFailureUsesDaraException()
     {
         $this->expectException(DaraException::class);

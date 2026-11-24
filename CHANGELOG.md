@@ -1,15 +1,16 @@
 # CHANGELOG
 
-## [Unreleased]
-
-### Added
-- WebSocket protocol support (align golang tea): client, handler, connector, session util, RuntimeOptions fields
-- Unit tests for WebSocket with local mock server
+## [1.0.8] - 2026-11-09
 
 ### Fixed
-- StreamTest no longer depends on flaky external httpbin/network
-- Feature RequestTest skips on external network failures
+- Fixed PHP 8.4 and 8.5 deprecation warnings in date parsing and WebSocket connections. For WebSocket on these PHP versions, update to Pawl 0.4.3 or later and RFC6455 0.4.1 or later.
+- Documented the React Promise 3.x requirement for deprecation-free startup on PHP 8.5.
+- Preserved `React\Promise\Timer\TimeoutException` for WebSocket handshake timeouts after removing `clue/block-react`, and `TypeError` for invalid WebSocket connector arguments on PHP 7 and newer.
 
+## [1.0.7] - 2026-11-03
+
+### Added
+- Support `ipv4Only` option to restrict SDK HTTP connections to IPv4 only (A/AAAA pin, proxy hop included)
 
 ## [1.0.4] - 2025-12-15
 

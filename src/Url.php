@@ -41,6 +41,15 @@ class Url
         $this->pathname = isset($parts['path']) ? $parts['path'] : '';
         $this->search = isset($parts['query']) ? '?' . $parts['query'] : '';
         $this->hash = isset($parts['fragment']) ? '#' . $parts['fragment'] : '';
+        // PHP 8.0 之前 parse_url 会丢弃空 query/fragment，需保留原始分隔符。
+        $queryPos = strpos($str, '?');
+        $fragmentPos = strpos($str, '#');
+        if ($this->search === '' && $queryPos !== false && ($fragmentPos === false || $queryPos < $fragmentPos)) {
+            $this->search = '?';
+        }
+        if ($this->hash === '' && $fragmentPos !== false) {
+            $this->hash = '#';
+        }
         if (isset($parts['user']) || isset($parts['pass'])) {
             $this->auth = (isset($parts['user']) ? $parts['user'] : '') . ':' . (isset($parts['pass']) ? $parts['pass'] : '');
         }
