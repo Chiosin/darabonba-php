@@ -8,8 +8,10 @@ use AlibabaCloud\Dara\Models\RuntimeOptions;
 use AlibabaCloud\Dara\Models\ExtendsParameters;
 use AlibabaCloud\Dara\Request;
 use AlibabaCloud\Dara\Dara;
+use GuzzleHttp\Exception\ConnectException;
 use GuzzleHttp\Handler\MockHandler;
 use GuzzleHttp\HandlerStack;
+use GuzzleHttp\Promise\FulfilledPromise;
 use GuzzleHttp\Psr7\Response as PsrResponse;
 use PHPUnit\Framework\TestCase;
 use AlibabaCloud\Dara\Model;
@@ -142,32 +144,65 @@ class DaraTest extends TestCase
 
     public static function testProxy()
     {
-        $request = new Request('GET', 'https://api.alibabacloud.com/');
-        $response = Dara::send($request);
-        self::assertEquals(200, $response->getStatusCode());
-
+        // 由系统分配空闲端口，关闭监听后测试代理连接失败，避免固定端口冲突。
+        $socket = stream_socket_server('tcp://127.0.0.1:0', $errno, $error);
+        self::assertTrue(is_resource($socket), $error);
+        $proxy = 'http://' . stream_socket_get_name($socket, false);
+        fclose($socket);
+        Dara::config([]);
         try {
-            Dara::send($request, [
-                'httpsProxy'  => 'http://127.0.0.1:1234',
-                'readTimeout' => 3000,
-            ]);
-            // cannot be here
-            self::assertTrue(false);
-        } catch (\Exception $e) {
-            self::assertTrue(0 === strpos($e->getMessage(), 'cURL error 7: Failed to connect to 127.0.0.1 port 1234'));
+            foreach (['https', 'http'] as $scheme) {
+                // 若代理配置未生效，应得到 DNS 错误，而非代理连接失败。
+                $request = new Request('GET', $scheme . '://proxy-target.invalid/');
+                $request->protocol = $scheme;
+                try {
+                    Dara::send($request, [
+                        $scheme . 'Proxy' => $proxy,
+                        'readTimeout' => 1000,
+                        'connectTimeout' => 1000,
+                    ]);
+                    self::fail('请求必须因代理连接失败而抛出异常');
+                } catch (ConnectException $e) {
+                    // libcurl 的错误文案随版本变化，错误码才是稳定的契约。
+                    self::assertSame(CURLE_COULDNT_CONNECT, $e->getHandlerContext()['errno'], $e->getMessage());
+                    self::assertSame($scheme, $e->getRequest()->getUri()->getScheme());
+                    self::assertSame('proxy-target.invalid', $e->getRequest()->getUri()->getHost());
+                }
+            }
+        } finally {
+            Dara::config([]);
         }
+    }
 
+    public static function testProxyOptionsAreForwarded()
+    {
+        $captured = [];
+        Dara::config(['handler' => HandlerStack::create(function ($request, array $options) use (&$captured) {
+            $captured[] = ['scheme' => $request->getUri()->getScheme(), 'options' => $options];
+            return new FulfilledPromise(new PsrResponse(200));
+        })]);
+        $runtime = [
+            'httpProxy' => 'http://127.0.0.1:1234',
+            'httpsProxy' => 'http://127.0.0.1:5678',
+            'noProxy' => ['bypass.example.test'],
+        ];
         try {
-            $request           = new Request('GET', 'http://api.alibabacloud.com/');
-            $request->protocol = 'http';
-            Dara::send($request, [
-                'httpProxy'   => 'http://127.0.0.1:1234',
-                'readTimeout' => 3000,
-            ]);
-            // cannot be here
-            self::assertTrue(false);
-        } catch (\Exception $e) {
-            self::assertTrue(0 === strpos($e->getMessage(), 'cURL error 7: Failed to connect to 127.0.0.1 port 1234'));
+            foreach (['https', 'http'] as $scheme) {
+                $request = new Request('GET', $scheme . '://proxy-target.invalid/');
+                $request->protocol = $scheme;
+                $response = Dara::send($request, $runtime);
+                self::assertSame(200, $response->getStatusCode());
+            }
+            self::assertCount(2, $captured);
+            foreach ($captured as $index => $capture) {
+                self::assertSame($index === 0 ? 'https' : 'http', $capture['scheme']);
+                $options = $capture['options'];
+                self::assertSame($runtime['httpProxy'], $options['proxy']['http']);
+                self::assertSame($runtime['httpsProxy'], $options['proxy']['https']);
+                self::assertSame($runtime['noProxy'], $options['proxy']['no']);
+            }
+        } finally {
+            Dara::config([]);
         }
     }
     public static function testIgnoreSSL()
